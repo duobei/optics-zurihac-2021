@@ -11,7 +11,9 @@ of calling makeLenses.
 module LabelsExercises where
 
 import GHC.Generics (Generic)
+import Data.Char (toUpper)
 import Optics.Core
+
 
 {-
 Here are some example data types from the slides, and some test data to
@@ -54,7 +56,7 @@ ages :: Fold Person Int
 ages = #age `summing` (#pets % folded % #age)
 
 anyOlderThan :: Int -> Person -> Bool
-anyOlderThan = undefined
+anyOlderThan n = has (ages % filtered (> n))
 
 
 {-
@@ -72,11 +74,12 @@ anyOlderThan = undefined
 -}
 
 petsOlderThan :: Int -> Fold Person Pet
-petsOlderThan = undefined
+petsOlderThan n = #pets % folded % f
+  where
+    f = filtered ((> n) . view #age)
 
 petNamesOlderThan :: Int -> Person -> [String]
-petNamesOlderThan = undefined
-
+petNamesOlderThan n = toListOf (petsOlderThan n % #name)
 
 
 {-
@@ -92,10 +95,11 @@ petNamesOlderThan = undefined
 -}
 
 names :: Traversal' Person String
-names = undefined
+names = #name `adjoin` (#pets % traversed % #name)
+
 
 capitaliseNames :: Person -> Person
-capitaliseNames = undefined
+capitaliseNames = over (names % traversed) toUpper
 
 
 {-

@@ -6,6 +6,9 @@ module Exercises where
 import Optics.Core
 import Optics.TH
 
+import Data.Char
+import Control.Monad.State
+
 {-
 Here are some example data types from the slides, and some test data to
 experiment with.
@@ -50,7 +53,7 @@ ages :: Fold Person Int
 ages = personAge `summing` (personPets % folded % petAge)
 
 anyOlderThan :: Int -> Person -> Bool
-anyOlderThan = undefined
+anyOlderThan n = has (ages % filtered (> n))
 
 
 {-
@@ -68,11 +71,12 @@ anyOlderThan = undefined
 -}
 
 petsOlderThan :: Int -> Fold Person Pet
-petsOlderThan = undefined
+petsOlderThan age = personPets % folded % f
+  where
+    f = filtered ((> age) . view petAge)
 
 petNamesOlderThan :: Int -> Person -> [String]
-petNamesOlderThan = undefined
-
+petNamesOlderThan age = toListOf (petsOlderThan age % petName)
 
 
 {-
@@ -88,10 +92,10 @@ petNamesOlderThan = undefined
 -}
 
 names :: Traversal' Person String
-names = undefined
+names = personName `adjoin` (personPets % traversed % petName)
 
 capitaliseNames :: Person -> Person
-capitaliseNames = undefined
+capitaliseNames = over (names % traversed) toUpper
 
 
 {-
@@ -111,7 +115,12 @@ capitaliseNames = undefined
 -}
 
 replaceNames :: [Person] -> IO [Person]
-replaceNames = undefined
+replaceNames persons = traverseOf (traversed % names) helper persons
+  where
+    helper name =
+      do
+        putStr $ "Replacement for " <> name <> ": "
+        getLine
 
 
 
@@ -169,21 +178,36 @@ treeExample =
                (Leaf 2))
 
 leaves :: Traversal (Tree a b) (Tree a' b) a a'
-leaves = undefined
+leaves = traversalVL helper
+  where
+    helper f (Leaf a) = Leaf <$> f a
+    helper f (Node l x r) = Node <$> helper f l <*> pure x <*> helper f r
 
 
 preorder, inorder, postorder :: Traversal (Tree a b) (Tree a b') b b'
 
-preorder = undefined
+inorder = traversalVL helper
+  where
+    helper _ (Leaf a) = pure $ Leaf a
+    helper f (Node l b r) = Node <$> helper f l <*> f b <*> helper f r
 
-inorder = undefined
+postorder = traversalVL traverseTree
+  where
+    traverseTree _ (Leaf a) = pure (Leaf a)
+    traverseTree f (Node l b r) =
+      (\left right v -> Node left v right) <$> traverseTree f l <*> traverseTree f r <*> f b
 
-postorder = undefined
+preorder = traversalVL helper
+  where
+    helper _ (Leaf a) = pure $ Leaf a
+    helper f (Node l b r) = flip Node <$> f b <*> helper f l <*> helper f r
 
 
 attachIndices :: Num e => Traversal s t a (e, a) -> s -> t
-attachIndices = undefined
+attachIndices traversal tree = evalState (traverseOf traversal addIndex tree) 0
 
+addIndex :: Num e => a -> State e (e, a)
+addIndex a = state (\s -> ((s, a), s + 1))
 
 
 {-
@@ -218,10 +242,15 @@ rtreeExample :: RTree Char
 rtreeExample = MkRTree 'a' [MkRTree 'b' [], MkRTree 'c' [MkRTree 'd' []], MkRTree 'e' []]
 
 rtreeLabels :: Traversal (RTree a) (RTree b) a b
-rtreeLabels = undefined
+rtreeLabels = traversalVL travel
+  where
+    travel f (MkRTree label children) = MkRTree <$> l <*> c
+      where
+        l = f label
+        c = traverse (travel f) children
 
 rtreeLabels' :: Traversal' (RTree a) a
-rtreeLabels' = undefined
+rtreeLabels' = rtreeLabel `adjoin` (rtreeChildren % traversed % rtreeLabels')
 
 
 
@@ -239,15 +268,19 @@ data Dubious a = MkDubious Int a
   deriving Show
 
 dubiousLens :: Lens (Dubious a) (Dubious b) a b
-dubiousLens = undefined
+dubiousLens = lensVL travel
+  where
+    travel :: Functor f => (a -> f b) -> Dubious a -> f (Dubious b)
+    travel f (MkDubious cnt v) = MkDubious (cnt + 1) <$> f v
 
 
 data Duplicated a = MkDuplicated a
   deriving Show
 
 traverseDuplicated :: Traversal' (Duplicated a) a
-traverseDuplicated = undefined
-
+traverseDuplicated = traversalVL travel
+  where
+    travel f (MkDuplicated x) = (const MkDuplicated <$> f x) <*> f x
 
 
 {-
